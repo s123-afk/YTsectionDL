@@ -8,6 +8,7 @@ from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt5.QtGui import QColor, QPalette
 import yt_dlp  # Still used for fetching formats
 
+# Thread to fetch formats
 class FetchFormatsThread(QThread):
     completed = pyqtSignal(list)
     error = pyqtSignal(str)
