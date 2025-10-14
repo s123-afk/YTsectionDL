@@ -4,9 +4,27 @@ from urllib.parse import urlparse, parse_qs
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLineEdit, QPushButton, QComboBox, QLabel, QMessageBox, QProgressBar, QListWidget)
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtCore import Qt, QTimer, QUrl
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt5.QtGui import QColor, QPalette
 import yt_dlp  # Still used for fetching formats
+
+class FetchFormatsThread(QThread):
+    completed = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, url):
+        super().__init__()
+        self.url = url
+
+    def run(self):
+        try:
+            ydl_opts = {'quiet': True}
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(self.url, download=False)
+                formats = info.get('formats', [])
+            self.completed.emit(formats)
+        except Exception as e:
+            self.error.emit(str(e))
 
 class YouTubeDownloader(QMainWindow):
     def __init__(self):
@@ -43,9 +61,9 @@ class YouTubeDownloader(QMainWindow):
         load_btn.clicked.connect(self.load_video)
         left_panel.addWidget(load_btn)
 
-        # Fetch formats button
+        # Fetch formats button (still available for manual fetch)
         self.fetch_formats_btn = QPushButton('Fetch Formats')
-        self.fetch_formats_btn.clicked.connect(self.fetch_formats)
+        self.fetch_formats_btn.clicked.connect(self.start_fetch_formats)
         left_panel.addWidget(self.fetch_formats_btn)
 
         # Current time
@@ -153,27 +171,31 @@ class YouTubeDownloader(QMainWindow):
         if enabled and not self.formats:
             QMessageBox.information(self, 'Info', 'Please fetch formats first.')
 
-    def fetch_formats(self):
+    def start_fetch_formats(self):
         url = self.url_input.text()
         if not url:
             QMessageBox.warning(self, 'Error', 'Enter URL first')
             return
-        try:
-            ydl_opts = {'quiet': True}
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                self.formats = info.get('formats', [])
-            self.custom_format.clear()
-            for fmt in self.formats:
-                format_id = fmt.get('format_id', 'unknown')
-                note = fmt.get('format_note', 'unknown')
-                ext = fmt.get('ext', 'unknown')
-                display = f"{format_id} - {note} ({ext})"
-                self.custom_format.addItem(display, format_id)
-            self.status_label.setText(f"Fetched {len(self.formats)} formats")
-        except Exception as e:
-            QMessageBox.critical(self, 'Error', str(e))
-            self.status_label.setText('Fetch failed')
+        self.fetch_thread = FetchFormatsThread(url)
+        self.fetch_thread.completed.connect(self.update_formats)
+        self.fetch_thread.error.connect(self.fetch_error)
+        self.status_label.setText('Fetching formats...')
+        self.fetch_thread.start()
+
+    def update_formats(self, formats):
+        self.formats = formats
+        self.custom_format.clear()
+        for fmt in self.formats:
+            format_id = fmt.get('format_id', 'unknown')
+            note = fmt.get('format_note', 'unknown')
+            ext = fmt.get('ext', 'unknown')
+            display = f"{format_id} - {note} ({ext})"
+            self.custom_format.addItem(display, format_id)
+        self.status_label.setText(f"Fetched {len(self.formats)} formats")
+
+    def fetch_error(self, error):
+        self.status_label.setText('Fetch failed')
+        QMessageBox.critical(self, 'Error', f"{error}\nTry updating yt-dlp: pip install yt-dlp --upgrade")
 
     def load_video(self):
         url = self.url_input.text()
@@ -211,6 +233,8 @@ class YouTubeDownloader(QMainWindow):
             self.player_ready = False
             self.check_player_ready()
             self.status_label.setText('Loading video...')
+            # Start fetching formats in parallel
+            self.start_fetch_formats()
         except:
             QMessageBox.warning(self, 'Error', 'Invalid YouTube URL')
 
