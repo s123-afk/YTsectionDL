@@ -41,7 +41,7 @@ class YouTubeDownloader(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('YouTube Downloader')
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 1800, 600)  # Window size remains 1800x600
         self.start_time = None  # float seconds
         self.end_time = None  # float seconds
         self.time_segments = []  # List of (start, end) tuples
@@ -53,7 +53,7 @@ class YouTubeDownloader(QMainWindow):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_current_time)
         self.formats = []  # List of available formats
-        self.is_fetching = False  # Flag to track if fetching is in progress
+        self.is_fetching = False  # Flag to track fetching status
         self.initUI()
 
     def initUI(self):
@@ -74,7 +74,7 @@ class YouTubeDownloader(QMainWindow):
         load_btn.clicked.connect(self.load_video)
         left_panel.addWidget(load_btn)
 
-        # Fetch formats button (still available for manual fetch)
+        # Fetch formats button
         self.fetch_formats_btn = QPushButton('Fetch Formats')
         self.fetch_formats_btn.clicked.connect(self.start_fetch_formats)
         left_panel.addWidget(self.fetch_formats_btn)
@@ -117,10 +117,17 @@ class YouTubeDownloader(QMainWindow):
         self.add_segment_btn.clicked.connect(self.add_segment)
         left_panel.addWidget(self.add_segment_btn)
 
-        # Segments list
+        # Segments list and delete button
+        segments_layout = QHBoxLayout()
         self.segments_list = QListWidget()
+        self.segments_list.setSelectionMode(QListWidget.ExtendedSelection)  # Allow multiple selection
+        self.segments_list.setMinimumWidth(400)  # Increase width to 400 pixels
+        segments_layout.addWidget(self.segments_list)
+        delete_segment_btn = QPushButton('Delete Segment')
+        delete_segment_btn.clicked.connect(self.delete_selected_segment)
+        segments_layout.addWidget(delete_segment_btn)
         left_panel.addWidget(QLabel('Segments:'))
-        left_panel.addWidget(self.segments_list)
+        left_panel.addLayout(segments_layout)
 
         # Preview button
         self.preview_btn = QPushButton('preview')
@@ -165,7 +172,7 @@ class YouTubeDownloader(QMainWindow):
         self.download_btn.clicked.connect(self.start_download)
         left_panel.addWidget(self.download_btn)
 
-        # Progress bar (simple, since subprocess)
+        # Progress bar
         self.progress_bar = QProgressBar()
         left_panel.addWidget(self.progress_bar)
 
@@ -205,7 +212,6 @@ class YouTubeDownloader(QMainWindow):
         self.fetch_thread.start()
 
     def update_formats(self, formats):
-        self.is_fetching = False
         self.formats = formats
         self.custom_format.clear()
         for fmt in self.formats:
@@ -214,6 +220,7 @@ class YouTubeDownloader(QMainWindow):
             ext = fmt.get('ext', 'unknown')
             display = f"{format_id} - {note} ({ext})"
             self.custom_format.addItem(display, format_id)
+        self.is_fetching = False
         self.status_label.setText(f"Fetched {len(self.formats)} formats")
 
     def fetch_error(self, error):
@@ -257,7 +264,6 @@ class YouTubeDownloader(QMainWindow):
             self.player_ready = False
             self.check_player_ready()
             self.status_label.setText('Loading video...')
-            # Start fetching formats in parallel
             self.start_fetch_formats()
         except:
             QMessageBox.warning(self, 'Error', 'Invalid YouTube URL')
@@ -291,7 +297,6 @@ class YouTubeDownloader(QMainWindow):
             if self.previewing and self.end_time is not None and self.current_time >= self.end_time:
                 self.safe_pause_video()
                 self.previewing = False
-            # Duration not updated here since multi-segments
 
     def adjust_time(self, delta):
         if self.player_ready:
@@ -334,6 +339,21 @@ class YouTubeDownloader(QMainWindow):
         self.end_time = None
         self.start_label.setText('start: not set')
         self.end_label.setText('end: not set')
+
+    def delete_selected_segment(self):
+        selected_items = self.segments_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, 'Error', 'Please select at least one segment to delete')
+            return
+        for item in selected_items:
+            segment_text = item.text()
+            start_end = segment_text.replace('Segment: ', '').split(' - ')
+            start = float(start_end[0].replace('s', ''))
+            end = float(start_end[1].replace('s', ''))
+            segment_to_remove = (start, end)
+            if segment_to_remove in self.time_segments:
+                self.time_segments.remove(segment_to_remove)
+            self.segments_list.takeItem(self.segments_list.row(item))
 
     def preview_segment(self):
         if not self.player_ready:
@@ -409,6 +429,9 @@ class YouTubeDownloader(QMainWindow):
                     raise Exception(result.stderr)
                 self.progress_bar.setValue(int((idx / len(self.time_segments)) * 100))
             self.status_label.setText('Download completed')
+            # Clear segments after successful download
+            self.time_segments.clear()
+            self.segments_list.clear()
         except Exception as e:
             self.status_label.setText(f'Error: {str(e)}')
             QMessageBox.critical(self, 'Download Error', str(e))
