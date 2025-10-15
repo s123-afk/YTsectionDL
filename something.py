@@ -1,14 +1,14 @@
 import sys
+import os
 import subprocess
 from urllib.parse import urlparse, parse_qs
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QLineEdit, QPushButton, QComboBox, QLabel, QMessageBox, QProgressBar, QListWidget)
+                             QLineEdit, QPushButton, QComboBox, QLabel, QMessageBox, QProgressBar, QListWidget, QFileDialog)
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt5.QtGui import QColor, QPalette
 import yt_dlp  # Still used for fetching formats
 
-# Thread to fetch formats
 class FetchFormatsThread(QThread):
     completed = pyqtSignal(list)
     error = pyqtSignal(str)
@@ -19,7 +19,17 @@ class FetchFormatsThread(QThread):
 
     def run(self):
         try:
-            ydl_opts = {'quiet': True}
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'extractor_args': {'youtube': {'skip': ['dash', 'hls']}}  # Skip problematic manifests to avoid nsig issues
+            }
+            # Check for cookies.txt in current directory
+            cookies_file = 'cookies.txt'
+            if os.path.exists(cookies_file):
+                ydl_opts['cookiefile'] = cookies_file
+            else:
+                ydl_opts['user_agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(self.url, download=False)
                 formats = info.get('formats', [])
@@ -39,6 +49,7 @@ class YouTubeDownloader(QMainWindow):
         self.current_time = 0.0
         self.previewing = False
         self.player_ready = False
+        self.download_dir = os.getcwd()  # Default to current directory
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_current_time)
         self.formats = []  # List of available formats
@@ -139,6 +150,14 @@ class YouTubeDownloader(QMainWindow):
         left_panel.addWidget(QLabel('Cookies File (optional):'))
         self.cookies_input = QLineEdit()
         left_panel.addWidget(self.cookies_input)
+
+        # Download directory
+        left_panel.addWidget(QLabel('Download Directory:'))
+        self.download_dir_label = QLabel(self.download_dir)
+        left_panel.addWidget(self.download_dir_label)
+        choose_dir_btn = QPushButton('Choose Download Directory')
+        choose_dir_btn.clicked.connect(self.choose_download_dir)
+        left_panel.addWidget(choose_dir_btn)
 
         # Download button
         self.download_btn = QPushButton('download')
@@ -339,6 +358,12 @@ class YouTubeDownloader(QMainWindow):
         """
         self.video_view.page().runJavaScript(js)
 
+    def choose_download_dir(self):
+        dir = QFileDialog.getExistingDirectory(self, "Select Download Directory", self.download_dir)
+        if dir:
+            self.download_dir = dir
+            self.download_dir_label.setText(self.download_dir)
+
     def start_download(self):
         if not self.url_input.text() or not self.time_segments:
             QMessageBox.warning(self, 'Error', 'Missing URL or segments')
@@ -373,7 +398,7 @@ class YouTubeDownloader(QMainWindow):
                     cmd += ['--cookies', cookies]
                 cmd += ['--download-sections', f'*{start}-{end}']
                 cmd += ['-f', format_str]
-                cmd += ['-o', f'output{idx}.%(ext)s']
+                cmd += ['-o', os.path.join(self.download_dir, f'output{idx}.%(ext)s')]
                 self.status_label.setText(f'Downloading segment {idx}...')
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:
@@ -395,6 +420,9 @@ def main():
     app = QApplication(sys.argv)
     window = YouTubeDownloader()
     window.show()
+    if len(window.formats)==0 :
+            print("No formats fetched yet")
+            print(window.formats)
     sys.exit(app.exec_())
 
 if __name__ == '__main__':
