@@ -53,6 +53,7 @@ class YouTubeDownloader(QMainWindow):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_current_time)
         self.formats = []  # List of available formats
+        self.is_fetching = False  # Flag to track if fetching is in progress
         self.initUI()
 
     def initUI(self):
@@ -188,7 +189,7 @@ class YouTubeDownloader(QMainWindow):
         enabled = mode == 'custom'
         self.custom_format.setEnabled(enabled)
         self.custom_format_label.setEnabled(enabled)
-        if enabled and not self.formats:
+        if enabled and not self.formats and not self.is_fetching:
             QMessageBox.information(self, 'Info', 'Please fetch formats first.')
 
     def start_fetch_formats(self):
@@ -196,6 +197,7 @@ class YouTubeDownloader(QMainWindow):
         if not url:
             QMessageBox.warning(self, 'Error', 'Enter URL first')
             return
+        self.is_fetching = True
         self.fetch_thread = FetchFormatsThread(url)
         self.fetch_thread.completed.connect(self.update_formats)
         self.fetch_thread.error.connect(self.fetch_error)
@@ -203,6 +205,7 @@ class YouTubeDownloader(QMainWindow):
         self.fetch_thread.start()
 
     def update_formats(self, formats):
+        self.is_fetching = False
         self.formats = formats
         self.custom_format.clear()
         for fmt in self.formats:
@@ -214,6 +217,7 @@ class YouTubeDownloader(QMainWindow):
         self.status_label.setText(f"Fetched {len(self.formats)} formats")
 
     def fetch_error(self, error):
+        self.is_fetching = False
         self.status_label.setText('Fetch failed')
         QMessageBox.critical(self, 'Error', f"{error}\nTry updating yt-dlp: pip install yt-dlp --upgrade")
 
@@ -420,9 +424,6 @@ def main():
     app = QApplication(sys.argv)
     window = YouTubeDownloader()
     window.show()
-    if len(window.formats)==0 :
-            print("No formats fetched yet")
-            print(window.formats)
     sys.exit(app.exec_())
 
 if __name__ == '__main__':
