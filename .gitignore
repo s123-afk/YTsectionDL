@@ -3,6 +3,8 @@ __pycache__/
 *.py[codz]
 *$py.class
 DLDR
+test.py
+*.mp4
 # C extensions
 *.so
 

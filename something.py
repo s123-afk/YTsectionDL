@@ -10,7 +10,7 @@ from PyQt5.QtGui import QColor, QPalette
 import yt_dlp  # Still used for fetching formats
 
 class FetchFormatsThread(QThread):
-    completed = pyqtSignal(list)
+    completed = pyqtSignal(list, str)
     error = pyqtSignal(str)
 
     def __init__(self, url):
@@ -32,8 +32,9 @@ class FetchFormatsThread(QThread):
                 ydl_opts['user_agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(self.url, download=False)
+                self.title = info.get('title', 'Untitled')
                 formats = info.get('formats', [])
-            self.completed.emit(formats)
+            self.completed.emit(formats, self.title)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -54,6 +55,7 @@ class YouTubeDownloader(QMainWindow):
         self.timer.timeout.connect(self.update_current_time)
         self.formats = []  # List of available formats
         self.is_fetching = False  # Flag to track fetching status
+        self.title = 'Untitled'  # Default title
         self.initUI()
 
     def initUI(self):
@@ -215,8 +217,9 @@ class YouTubeDownloader(QMainWindow):
         self.status_label.setText('Fetching formats...')
         self.fetch_thread.start()
 
-    def update_formats(self, formats):
+    def update_formats(self, formats, title):
         self.formats = formats
+        self.title = title  # Update title from thread
         self.custom_format.clear()
         for fmt in self.formats:
             format_id = fmt.get('format_id', 'unknown')
@@ -428,12 +431,24 @@ class YouTubeDownloader(QMainWindow):
 
         try:
             for idx, (start, end) in enumerate(self.time_segments, 1):
+                # Format start time as HH:MM:SS
+                hours = int(start // 3600)
+                minutes = int((start % 3600) // 60)
+                seconds = int(start % 60)
+                start_time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                hours = int(end // 3600)
+                minutes = int((end % 3600) // 60)
+                seconds = int(end % 60)
+                end_time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                # Sanitize title to avoid illegal filename characters
+                safe_title = ''.join(c if c.isalnum() or c in ' -_.' else '_' for c in self.title)
+                filename = f"{safe_title}-{start_time_str}-{end_time_str}.%(ext)s"
                 cmd = ['yt-dlp', url]
                 if cookies:
                     cmd += ['--cookies', cookies]
                 cmd += ['--download-sections', f'*{start}-{end}']
                 cmd += ['-f', format_str]
-                cmd += ['-o', os.path.join(self.download_dir, f'output{idx}.%(ext)s')]
+                cmd += ['-o', os.path.join(self.download_dir, filename)]
                 self.status_label.setText(f'Downloading segment {idx}...')
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:
