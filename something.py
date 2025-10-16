@@ -41,7 +41,7 @@ class YouTubeDownloader(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('YouTube Downloader')
-        self.setGeometry(100, 100, 1800, 600)  # Window size remains 1800x600
+        self.setGeometry(100, 100, 1800, 600)
         self.start_time = None  # float seconds
         self.end_time = None  # float seconds
         self.time_segments = []  # List of (start, end) tuples
@@ -121,7 +121,7 @@ class YouTubeDownloader(QMainWindow):
         segments_layout = QHBoxLayout()
         self.segments_list = QListWidget()
         self.segments_list.setSelectionMode(QListWidget.ExtendedSelection)  # Allow multiple selection
-        self.segments_list.setMinimumWidth(400)  # Increase width to 400 pixels
+        self.segments_list.setMinimumWidth(400)  # Increased width
         segments_layout.addWidget(self.segments_list)
         delete_segment_btn = QPushButton('Delete Segment')
         delete_segment_btn.clicked.connect(self.delete_selected_segment)
@@ -237,21 +237,26 @@ class YouTubeDownloader(QMainWindow):
         try:
             parsed = urlparse(url)
             self.video_id = parse_qs(parsed.query)['v'][0]
-            # Use direct iframe embed to avoid API loading issues
+            # Use direct iframe embed with explicit IFrame API script
             embed_url = f"https://www.youtube.com/embed/{self.video_id}?enablejsapi=1&origin=*&referrerPolicy=no-referrer-when-downgrade&playsinline=1"
             html = f"""
             <html>
             <head>
                 <meta charset="utf-8">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://youtube.com https://*.youtube.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://youtube.com https://*.youtube.com; frame-src https://www.youtube.com https://youtube.com https://*.youtube.com">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://www.youtube.com https://youtube.com https://*.youtube.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://youtube.com https://*.youtube.com https://www.google.com; frame-src https://www.youtube.com https://youtube.com https://*.youtube.com; connect-src 'self' https://www.youtube.com https://youtube.com https://*.youtube.com">
                 <style>body {{ margin: 0; padding: 0; background-color: purple; }} #player {{ width: 100%; height: 100%; }}</style>
+                <script src="https://www.youtube.com/iframe_api"></script>
             </head>
             <body>
-                <iframe id="player" src="{embed_url}" frameborder="0" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture"></iframe>
+                <div id="player"></div>
                 <script>
                     var player;
                     function onYouTubeIframeAPIReady() {{
                         player = new YT.Player('player', {{
+                            height: '100%',
+                            width: '100%',
+                            videoId: '{self.video_id}',
+                            playerVars: {{ 'enablejsapi': 1, 'origin': '*' }},
                             events: {{ 'onReady': onPlayerReady }}
                         }});
                     }}
