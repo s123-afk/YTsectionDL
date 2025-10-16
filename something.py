@@ -85,32 +85,38 @@ class YouTubeDownloader(QMainWindow):
         current_time_layout = QHBoxLayout()
         current_time_layout.addWidget(QLabel('current time:'))
         dec_btn = QPushButton('<')
-        dec_btn.clicked.connect(lambda: self.adjust_time(-0.5))
+        dec_btn.clicked.connect(lambda: self.adjust_time(-10.0))  # Jump back 10 seconds
         current_time_layout.addWidget(dec_btn)
-        self.current_time_input = QLineEdit('0.0')
-        self.current_time_input.setFixedWidth(50)
+        self.current_time_input = QLineEdit('00:00:00')
+        self.current_time_input.setFixedWidth(60)  # Slightly wider for time input
         self.current_time_input.returnPressed.connect(self.set_current_from_input)
         current_time_layout.addWidget(self.current_time_input)
         inc_btn = QPushButton('>')
-        inc_btn.clicked.connect(lambda: self.adjust_time(0.5))
+        inc_btn.clicked.connect(lambda: self.adjust_time(10.0))  # Jump forward 10 seconds
         current_time_layout.addWidget(inc_btn)
         left_panel.addLayout(current_time_layout)
 
-        # Start and End buttons
+        # Start and End controls
         start_end_layout = QHBoxLayout()
+        left_panel.addWidget(QLabel('start time:'))
+        self.start_input = QLineEdit('not set')
+        self.start_input.returnPressed.connect(self.set_start_from_input)
+        start_end_layout.addWidget(self.start_input)
         self.start_btn = QPushButton('start')
         self.start_btn.clicked.connect(self.set_start)
         start_end_layout.addWidget(self.start_btn)
+        left_panel.addWidget(QLabel('end time:'))
+        self.end_input = QLineEdit('not set')
+        self.end_input.returnPressed.connect(self.set_end_from_input)
+        start_end_layout.addWidget(self.end_input)
         self.end_btn = QPushButton('end')
         self.end_btn.clicked.connect(self.set_end)
         start_end_layout.addWidget(self.end_btn)
         left_panel.addLayout(start_end_layout)
 
-        # Start label
+        # Start and End labels (for display)
         self.start_label = QLabel('start: not set')
         left_panel.addWidget(self.start_label)
-
-        # End label
         self.end_label = QLabel('end: not set')
         left_panel.addWidget(self.end_label)
 
@@ -307,7 +313,7 @@ class YouTubeDownloader(QMainWindow):
     def set_current_time(self, time):
         if time is not None and time != -1:
             self.current_time = float(time)
-            self.current_time_input.setText(f"{self.current_time:.1f}")
+            self.current_time_input.setText(self.format_time_input(self.current_time))
             if self.previewing and self.end_time is not None and self.current_time >= self.end_time:
                 self.safe_pause_video()
                 self.previewing = False
@@ -315,15 +321,52 @@ class YouTubeDownloader(QMainWindow):
     def adjust_time(self, delta):
         if self.player_ready:
             new_time = self.current_time + delta
-            self.safe_seek_to(new_time)
+            # Ensure new_time stays within video bounds (e.g., 0 to video duration)
+            if new_time < 0:
+                new_time = 0
+            js = f"""
+            if (typeof player !== 'undefined' && typeof player.seekTo === 'function') {{
+                player.seekTo({new_time}, true);
+            }}
+            """
+            self.video_view.page().runJavaScript(js)
+            self.current_time = new_time
+            self.current_time_input.setText(self.format_time_input(self.current_time))
 
     def set_current_from_input(self):
         if self.player_ready:
             try:
-                new_time = float(self.current_time_input.text())
-                self.safe_seek_to(new_time)
-            except:
-                pass
+                time_str = self.current_time_input.text().strip()
+                new_time = self.parse_time_input(time_str)
+                if new_time is not None:
+                    self.safe_seek_to(new_time)
+                    self.current_time = new_time
+                    self.current_time_input.setText(self.format_time_input(self.current_time))
+            except Exception as e:
+                QMessageBox.warning(self, 'Error', f'Invalid time format. Use "HH:MM:SS" or seconds (e.g., "123" or "01:23").')
+
+    def parse_time_input(self, time_str):
+        """Parse time input into seconds (supports "HH:MM:SS" or plain seconds)."""
+        try:
+            if ':' in time_str:
+                parts = [int(p) for p in time_str.split(':')]
+                if len(parts) == 3:
+                    hours, minutes, seconds = parts
+                    return hours * 3600 + minutes * 60 + seconds
+                elif len(parts) == 2:
+                    minutes, seconds = parts
+                    return minutes * 60 + seconds
+            else:
+                return float(time_str)
+        except ValueError:
+            return None
+
+    def format_time_input(self, seconds):
+        """Format seconds into HH:MM:SS string."""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
     def safe_seek_to(self, time):
         js = f"""
@@ -336,23 +379,49 @@ class YouTubeDownloader(QMainWindow):
     def set_start(self):
         if self.player_ready:
             self.start_time = self.current_time
-            self.start_label.setText(f"start: {self.format_time(self.start_time)}")
+            self.start_label.setText(f"start: {self.format_time_input(self.start_time)}")
+            self.start_input.setText(self.format_time_input(self.start_time))
 
     def set_end(self):
         if self.player_ready:
             self.end_time = self.current_time
-            self.end_label.setText(f"end: {self.format_time(self.end_time)}")
+            self.end_label.setText(f"end: {self.format_time_input(self.end_time)}")
+            self.end_input.setText(self.format_time_input(self.end_time))
+
+    def set_start_from_input(self):
+        if self.player_ready:
+            time_str = self.start_input.text().strip()
+            new_time = self.parse_time_input(time_str)
+            if new_time is not None:
+                self.start_time = new_time
+                self.start_label.setText(f"start: {self.format_time_input(self.start_time)}")
+                self.start_input.setText(self.format_time_input(self.start_time))
+            else:
+                QMessageBox.warning(self, 'Error', f'Invalid start time format. Use "HH:MM:SS" or seconds (e.g., "123" or "01:23").')
+
+    def set_end_from_input(self):
+        if self.player_ready:
+            time_str = self.end_input.text().strip()
+            new_time = self.parse_time_input(time_str)
+            if new_time is not None:
+                self.end_time = new_time
+                self.end_label.setText(f"end: {self.format_time_input(self.end_time)}")
+                self.end_input.setText(self.format_time_input(self.end_time))
+            else:
+                QMessageBox.warning(self, 'Error', f'Invalid end time format. Use "HH:MM:SS" or seconds (e.g., "123" or "01:23").')
 
     def add_segment(self):
         if self.start_time is None or self.end_time is None or self.start_time >= self.end_time:
             QMessageBox.warning(self, 'Error', 'Invalid start/end times')
             return
         self.time_segments.append((self.start_time, self.end_time))
-        self.segments_list.addItem(f"Segment: {self.format_time(self.start_time)} - {self.format_time(self.end_time)}")
+        self.segments_list.addItem(f"Segment: {self.format_time_input(self.start_time)} - {self.format_time_input(self.end_time)}")
         self.start_time = None
         self.end_time = None
         self.start_label.setText('start: not set')
         self.end_label.setText('end: not set')
+        self.start_input.setText('not set')
+        self.end_input.setText('not set')
 
     def delete_selected_segment(self):
         selected_items = self.segments_list.selectedItems()
@@ -362,8 +431,8 @@ class YouTubeDownloader(QMainWindow):
         for item in selected_items:
             segment_text = item.text()
             start_end = segment_text.replace('Segment: ', '').split(' - ')
-            start = float(start_end[0].replace('s', ''))
-            end = float(start_end[1].replace('s', ''))
+            start = self.parse_time_input(start_end[0])
+            end = self.parse_time_input(start_end[1])
             segment_to_remove = (start, end)
             if segment_to_remove in self.time_segments:
                 self.time_segments.remove(segment_to_remove)
@@ -432,17 +501,10 @@ class YouTubeDownloader(QMainWindow):
         try:
             for idx, (start, end) in enumerate(self.time_segments, 1):
                 # Format start time as HH:MM:SS
-                hours = int(start // 3600)
-                minutes = int((start % 3600) // 60)
-                seconds = int(start % 60)
-                start_time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-                hours = int(end // 3600)
-                minutes = int((end % 3600) // 60)
-                seconds = int(end % 60)
-                end_time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                start_time_str = self.format_time_input(start)
                 # Sanitize title to avoid illegal filename characters
                 safe_title = ''.join(c if c.isalnum() or c in ' -_.' else '_' for c in self.title)
-                filename = f"{safe_title}-{start_time_str}-{end_time_str}.%(ext)s"
+                filename = f"{safe_title}-{start_time_str}.%(ext)s"
                 cmd = ['yt-dlp', url]
                 if cookies:
                     cmd += ['--cookies', cookies]
