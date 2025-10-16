@@ -4,7 +4,7 @@ import subprocess
 from urllib.parse import urlparse, parse_qs
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QLineEdit, QPushButton, QComboBox, QLabel, QMessageBox, QProgressBar, QListWidget, QFileDialog)
-from PyQt5.QtWebEngineWidgets import QWebEngineView
+from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt5.QtGui import QColor, QPalette
 import yt_dlp  # Still used for fetching formats
@@ -184,6 +184,10 @@ class YouTubeDownloader(QMainWindow):
 
         # Middle: Video preview
         self.video_view = QWebEngineView()
+        # Set up page to enable JavaScript
+        self.video_page = QWebEnginePage(self.video_view)
+        self.video_view.setPage(self.video_page)
+        self.video_page.settings().setAttribute(self.video_page.settings().JavascriptEnabled, True)
         self.video_view.setHtml('<html><body style="background-color: purple;"><h1 style="color: white;">Now Loading...</h1></body></html>')
         main_layout.addWidget(self.video_view, 3)
 
@@ -233,43 +237,45 @@ class YouTubeDownloader(QMainWindow):
         try:
             parsed = urlparse(url)
             self.video_id = parse_qs(parsed.query)['v'][0]
+            # Use direct iframe embed to avoid API loading issues
+            embed_url = f"https://www.youtube.com/embed/{self.video_id}?enablejsapi=1&origin=*&referrerPolicy=no-referrer-when-downgrade&playsinline=1"
             html = f"""
-            <div id="player"></div>
-            <script>
-              var tag = document.createElement('script');
-              tag.src = "https://www.youtube.com/iframe_api";
-              var firstScriptTag = document.getElementsByTagName('script')[0];
-              firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-              var player;
-              function onYouTubeIframeAPIReady() {{
-                player = new YT.Player('player', {{
-                  height: '100%',
-                  width: '100%',
-                  videoId: '{self.video_id}',
-                  playerVars: {{ 'enablejsapi': 1 }},
-                  events: {{ 
-                    'onReady': onPlayerReady,
-                    'onStateChange': onPlayerStateChange 
-                  }}
-                }});
-              }}
-              function onPlayerReady(event) {{
-                window.playerReady = true;
-              }}
-              function onPlayerStateChange(event) {{
-              }}
-            </script>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://youtube.com https://*.youtube.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://youtube.com https://*.youtube.com; frame-src https://www.youtube.com https://youtube.com https://*.youtube.com">
+                <style>body {{ margin: 0; padding: 0; background-color: purple; }} #player {{ width: 100%; height: 100%; }}</style>
+            </head>
+            <body>
+                <iframe id="player" src="{embed_url}" frameborder="0" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture"></iframe>
+                <script>
+                    var player;
+                    function onYouTubeIframeAPIReady() {{
+                        player = new YT.Player('player', {{
+                            events: {{ 'onReady': onPlayerReady }}
+                        }});
+                    }}
+                    function onPlayerReady(event) {{
+                        window.playerReady = true;
+                        console.log('Player ready');
+                    }}
+                </script>
+            </body>
+            </html>
             """
-            self.video_view.setHtml(html, QUrl(""))
+            self.video_view.setHtml(html, QUrl("https://localhost"))  # Use https scheme to satisfy secure context
             self.player_ready = False
             self.check_player_ready()
             self.status_label.setText('Loading video...')
             self.start_fetch_formats()
-        except:
-            QMessageBox.warning(self, 'Error', 'Invalid YouTube URL')
+        except Exception as e:
+            self.status_label.setText('Load failed')
+            QMessageBox.warning(self, 'Error', f'Invalid YouTube URL: {str(e)}')
 
     def check_player_ready(self):
-        self.video_view.page().runJavaScript("typeof window.playerReady !== 'undefined' && window.playerReady;", self.set_player_ready)
+        if self.video_id:
+            js = "typeof window.playerReady !== 'undefined' && window.playerReady;"
+            self.video_view.page().runJavaScript(js, self.set_player_ready)
 
     def set_player_ready(self, ready):
         if ready:
