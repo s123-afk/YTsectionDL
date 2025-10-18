@@ -7,7 +7,7 @@ test.py
 *.mp4
 # C extensions
 *.so
-
+*.html
 # Distribution / packaging
 .Python
 build/
