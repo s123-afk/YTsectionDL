@@ -501,10 +501,17 @@ class YouTubeDownloader(QMainWindow):
         try:
             for idx, (start, end) in enumerate(self.time_segments, 1):
                 # Format start time as HH:MM:SS
-                start_time_str = self.format_time_input(start)
+                hours = int(start // 3600)
+                minutes = int((start % 3600) // 60)
+                seconds = int(start % 60)
+                start_time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                hours = int(end // 3600)
+                minutes = int((end % 3600) // 60)
+                seconds = int(end % 60)
+                end_time_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
                 # Sanitize title to avoid illegal filename characters
                 safe_title = ''.join(c if c.isalnum() or c in ' -_.' else '_' for c in self.title)
-                filename = f"{safe_title}-{start_time_str}.%(ext)s"
+                filename = f"{safe_title}-{start_time_str}-{end_time_str}.%(ext)s"
                 cmd = ['yt-dlp', url]
                 if cookies:
                     cmd += ['--cookies', cookies]
